@@ -26,7 +26,8 @@ typedef struct {
 const cell base_cell = {0, 0, 0, 0};
 cell map[15][15];
 int pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
-int orientation = 2; // N=0 S=1 E=2 W=3
+cell *current_cell;
+int orientation = 0; // N=0 S=1 E=2 W=3
 int field_counter = 0; // Anzahl der zurückgelegten Felder
 int move_to = 0; // Richtungsanweisung für die nächste Bewegung
 
@@ -77,8 +78,6 @@ char goalReached(){
 // ToDo: In zwei Funktionen splitten - Wände suchen und Mapping aktualisieren
 // ToDo: Einen richtigen ErrorState herbeiführen können, wenn etwas falsch läuft -> Wie Py Exception
 void checkForWalls(){
-	cell *current_cell;
-	current_cell = &map[pos[0]][pos[1]];
 	int wall_threshold = 100; // mm
 	int sensor_values[] = {getRangeMm(SENSOR_LEFT), getRangeMm(SENSOR_MIDDLE), getRangeMm(SENSOR_RIGHT)};
 	int sensor_values_nsew[4];
@@ -127,10 +126,6 @@ void checkForWalls(){
 // Diese Funktion gibt das aktuelle Feld auf dem Display aus.
 // Zeigt an, wo Wände sind und die Tremaux Counter
 void displayCell(){
-	cell *current_cell;
-	current_cell = &map[pos[0]][pos[1]];
-
-
 	char text[20];
 	int color_code = 1;
 	u8g2_ClearBuffer(display);
@@ -148,15 +143,29 @@ void displayCell(){
 
 	sprintf(text, "%d", current_cell->counter_w);
 	u8g2_DrawStr(display, 0, 40, text);
-
 	u8g2_SendBuffer(display);
+}
 
-
-
+int *getAvailableDirections(){
+	static int directions[4] = {999};
+	if (current_cell->counter_n != 9){
+		directions[0] = 0;
+	}
+	if (current_cell->counter_s != 9){
+			directions[1] = 0;
+		}
+	if (current_cell->counter_e != 9){
+			directions[2] = 0;
+		}
+	if (current_cell->counter_w != 9){
+			directions[3] = 0;
+		}
+	return directions;
 }
 
 
 void loop(){
+	current_cell = &map[pos[0]][pos[1]];
 
 	// Auf Knopfdruck warten
 	if(isPressed(BUTTON_RIGHT)){
@@ -176,6 +185,10 @@ void loop(){
 			u8g2_DrawStr(display, position_x, position_y, text);
 
 			u8g2_SendBuffer(display);
+
+			while (1) {
+
+			}
 		}
 
 		// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
@@ -183,6 +196,12 @@ void loop(){
 
 		// Feld auf Display ausgeben
 		displayCell();
+
+		// Die Richtungen ausgeben, die nicht durch eine Wand blockiert sind
+		int *available_directions = getAvailableDirections();
+
+
+
 		// Falls erste Bewegung, dann random ein Feld wählen
 		if (field_counter == 0){
 
