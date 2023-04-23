@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <string.h>
 
 typedef struct {
 	// Braucht jetzt 4 Byte, könnte man theoretisch auf 2 Byte reduzieren, aber super viel Aufwand und schlecht übersichtlich
@@ -25,11 +26,13 @@ typedef struct {
 
 const cell base_cell = {0, 0, 0, 0};
 cell map[15][15];
-int pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
+int current_pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
+int next_pos[2] = {7, 7};
 cell *current_cell;
-int orientation = 0; // N=0 S=1 E=2 W=3
-int field_counter = 0; // Anzahl der zurückgelegten Felder
-int move_to = 0; // Richtungsanweisung für die nächste Bewegung
+cell *next_cell;
+char orientation = 0; // N=0 S=1 E=2 W=3
+int movement_counter = 0; // Anzahl der zurückgelegten Felder
+int next_direction = 0; // Richtungsanweisung für die nächste Bewegung
 
 
 void init(){
@@ -78,7 +81,7 @@ char goalReached(){
 // ToDo: In zwei Funktionen splitten - Wände suchen und Mapping aktualisieren
 // ToDo: Einen richtigen ErrorState herbeiführen können, wenn etwas falsch läuft -> Wie Py Exception
 void checkForWalls(){
-	int wall_threshold = 100; // mm
+	int wall_threshold = 200; // mm
 	int sensor_values[] = {getRangeMm(SENSOR_LEFT), getRangeMm(SENSOR_MIDDLE), getRangeMm(SENSOR_RIGHT)};
 	int sensor_values_nsew[4];
 
@@ -146,87 +149,266 @@ void displayCell(){
 	u8g2_SendBuffer(display);
 }
 
-int *getAvailableDirections(){
-	static int directions[4] = {999};
-	if (current_cell->counter_n != 9){
-		directions[0] = 0;
+// Wähle die Richtung mit dem niedrigsten erlaubten Counter Wert
+// ToDo: Problem, dass er jetzt auch als erste Bewegung das Feld hinter sich auswählen kann
+// das könnte zu Crash führen, da er dieses Feld nicht mit seinen Sensoren analysieren kann
+// als Lösung könnte man ihn einmal um 90 Grad drehen lassen, damit er alle Himmelsrichtungen
+// scannen kann
+int lowestCounterDirection(){
+	for (int i = 0; i<2; i++) {
+		if (current_cell->counter_n == i) {
+			return 0;
+		}
+		if (current_cell->counter_s == i) {
+			return 1;
+		}
+		if (current_cell->counter_e == i) {
+			return 2;
+		}
+		if (current_cell->counter_w == i) {
+			return 3;
+		}
 	}
-	if (current_cell->counter_s != 9){
-			directions[1] = 0;
-		}
-	if (current_cell->counter_e != 9){
-			directions[2] = 0;
-		}
-	if (current_cell->counter_w != 9){
-			directions[3] = 0;
-		}
-	return directions;
+	return 999;
 }
 
+// Zeige die Richtung auf dem Display an, in die der Roboter als nächstes fahren möchte
+void displayMovementDecision(){
+	char direction[10];
+	if (next_direction == 0) {
+		strcpy(direction, "North");
+	}
+	if (next_direction == 1) {
+		strcpy(direction, "South");
+	}
+	if (next_direction == 2) {
+		strcpy(direction, "East");
+	}
+	if (next_direction == 3) {
+		strcpy(direction, "West");
+	}
+	u8g2_ClearBuffer(display);
+
+	int color_code = 1;
+	u8g2_SetDrawColor(display, color_code);
+
+	char text[50] = "Move towards: ";
+	strcat(text, direction);
+	u8g2_SetFont(display, u8g2_font_6x10_tr); // 2. Input ist die Schriftart und Größe
+
+	int position_x = 0; //0 ist ganz links
+	int position_y = (64 + u8g2_GetAscent(display))/2; // Y so, dass Text in der Mitte angezeigt wird
+
+	u8g2_DrawStr(display, position_x, position_y, text);
+
+	u8g2_SendBuffer(display);
+}
+
+// Gib die Anzahl der offenen Wege zurück
+char getNumberOfExits() {
+	char counter;
+	if (current_cell->counter_n < 2) {
+		counter += 1;
+	}
+	if (current_cell->counter_s < 2) {
+		counter += 1;
+	}
+	if (current_cell->counter_e < 2) {
+		counter += 1;
+	}
+	if (current_cell->counter_w < 2) {
+		counter += 1;
+	}
+	return 99;
+}
+
+// Gibt die entgegengestzte Himmelsrichtung zurück
+char getOppositeDirection(char direction) {
+	if (direction == 0){
+		return 1;
+	}
+	if (direction == 1){
+		return 0;
+	}
+	if (direction == 2){
+		return 3;
+	}
+	if (direction == 3){
+		return 2;
+	}
+	return 99;
+}
+
+// Gibt zurück, ob der Roboter schonmal in der Zelle war
+char cellVisited() {
+	char counter;
+	for (int i = 1; i < 3; i++){
+		if (current_cell->counter_n == i) {
+			counter += i;
+		}
+		if (current_cell->counter_s == i) {
+			counter += i;
+		}
+		if (current_cell->counter_e == i) {
+			counter += i;
+		}
+		if (current_cell->counter_w == i) {
+			counter += i;
+		}
+		if (counter > 1){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+// Gibt Tremaux COunter basierend auf der Himmelsrichtung zurück
+char getCounterFromDirection(char direction) {
+	if (direction == 0){
+		return current_cell->counter_n;
+	}
+	if (direction == 1){
+		return current_cell->counter_s;
+	}
+	if (direction == 2){
+		return current_cell->counter_e;
+	}
+	if (direction == 3){
+		return current_cell->counter_w;
+	}
+	return 99;
+}
+
+// Gibt zurück, in welche Richtung laut dem Tremaux Algorithmus als nächstes gefahren werden soll
+char getTremauxDirection() {
+	char exits = getNumberOfExits();
+	char opposite_direction = getOppositeDirection(orientation);
+	char lowest_counter_direction = lowestCounterDirection();
+	// Wenn nur der Weg offen ist (Counter ==1), durch den wir gerade gefahren sind, dann durch diesen fahren und den Counter aktualisieren
+	if (exits == 1){
+		return opposite_direction;
+	}
+	if (exits == 2) {
+		return lowest_counter_direction;
+	}
+	if (!cellVisited()) {
+		return lowest_counter_direction;
+	}
+	char opposite_direction_counter = getCounterFromDirection(opposite_direction);
+	if ( opposite_direction_counter < 2) {
+		return opposite_direction;
+	}
+	return lowest_counter_direction;
+
+
+	// Wenn zwei Wege offen sind, dann den nehmen, durch den wir nicht gefahren sind -> Pfad geht weiter
+	// Wenn mehr als zwei Wege offen sind und wir das erste Mal an dieser Kreuzung sind, dann einen zufälligen, nicht befahrenen Weg wählen & Counter aktualisieren
+	// Wenn mehr als zwei Wege offen sind, aber andere Wege in der Kreuzung markiert sind und der eben durchfahrene Weg keinen Counter=2 Wert hat, dann wieder umkehren
+	// Wenn mehr als zwei offen sind, die Kreuzung schon Markierungen hat und der eben durchfahrene Weg Counter=2 hat, dann den Weg mit den niedrigsten Markierungen wählen. Falls gleichstand, dann random einen wählen
+	// Wenn das alles nicht der Fall ist, dann Selbstzerstörung
+}
+
+// Aktualisiert die Tremaux Counter
+void updateTremauxCounters() {
+	if (orientation == 0){
+		current_cell->counter_n += 1;
+		next_cell->counter_s += 1;
+	}
+	if (orientation == 1){
+		current_cell->counter_s += 1;
+		next_cell->counter_n += 1;
+	}
+	if (orientation == 2){
+		current_cell->counter_e += 1;
+		next_cell->counter_w += 1;
+	}
+	if (orientation == 3){
+		current_cell->counter_w += 1;
+		next_cell->counter_e += 1;
+	}
+}
+
+// Berechnet die nächste Position und speichert sie ab
+void updateNextPosition() {
+	if (next_direction == 0) {
+		next_pos[0] -= 1;
+	} else if (next_direction == 1) {
+		next_pos[0] += 1;
+	} else if (next_direction == 2) {
+		next_pos[1] += 1;
+	} else if (next_direction == 3) {
+		next_pos[1] -= 1;
+	}
+}
 
 void loop(){
-	current_cell = &map[pos[0]][pos[1]];
+	current_cell = &map[current_pos[0]][current_pos[1]];
 
 	// Auf Knopfdruck warten
-	if(isPressed(BUTTON_RIGHT)){
+	char button_pressed = 0;
+	while (!button_pressed) {
+		if (isPressed(BUTTON_RIGHT)) {
+			button_pressed = 1;
+			while ( isPressed(BUTTON_RIGHT) );
+		}
+		HAL_Delay(20);
+	}
+
 		// Check, ob am Ziel angekommen
-		if(goalReached()){
-			u8g2_ClearBuffer(display);
+	if(goalReached()){
+		u8g2_ClearBuffer(display);
 
-			int color_code = 1;
-			u8g2_SetDrawColor(display, color_code);
+		int color_code = 1;
+		u8g2_SetDrawColor(display, color_code);
 
-			char text[] = "Ziel erreicht!";
-			u8g2_SetFont(display, u8g2_font_6x10_tr); // 2. Input ist die Schriftart und Größe
+		char text[] = "Ziel erreicht!";
+		u8g2_SetFont(display, u8g2_font_6x10_tr); // 2. Input ist die Schriftart und Größe
 
-			int position_x = 0; //0 ist ganz links
-			int position_y = (64 + u8g2_GetAscent(display))/2; // Y so, dass Text in der Mitte angezeigt wird
+		int position_x = 0; //0 ist ganz links
+		int position_y = (64 + u8g2_GetAscent(display))/2; // Y so, dass Text in der Mitte angezeigt wird
 
-			u8g2_DrawStr(display, position_x, position_y, text);
+		u8g2_DrawStr(display, position_x, position_y, text);
 
-			u8g2_SendBuffer(display);
+		u8g2_SendBuffer(display);
 
-			while (1) {
-
-			}
-		}
-
-		// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
-		checkForWalls();
-
-		// Feld auf Display ausgeben
-		displayCell();
-
-		// Die Richtungen ausgeben, die nicht durch eine Wand blockiert sind
-		int *available_directions = getAvailableDirections();
-
-
-
-		// Falls erste Bewegung, dann random ein Feld wählen
-		if (field_counter == 0){
-
+		while (1) {
 
 		}
+	}
 
+	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
+	checkForWalls();
 
-		// Wenn nur der Weg offen ist (Counter <=1), durch den wir gerade gefahren sind, dann durch diesen fahren und den Counter aktualisieren
-		// Wenn zwei Wege offen sind, dann den nehmen, durch den wir nicht gefahren sind -> Pfad geht weiter
-		// Wenn mehr als zwei Wege offen sind und wir das erste Mal an dieser Kreuzung sind, dann einen zufälligen, nicht befahrenen Weg wählen & Counter aktualisieren
-		// Wenn mehr als zwei Wege offen sind, aber andere Wege in der Kreuzung markiert sind und der eben durchfahrene Weg keinen Counter=2 Wert hat, dann wieder umkehren
-		// Wenn mehr als zwei offen sind, die Kreuzung schon Markierungen hat und der eben durchfahrene Weg Counter=2 hat, dann den Weg mit den niedrigsten Markierungen wählen. Falls gleichstand, dann random einen wählen
-		// Wenn das alles nicht der Fall ist, dann Selbstzerstörung
+	// Feld auf Display ausgeben
+	displayCell();
+	HAL_Delay(5000);
 
-		// Warte, bis Button nicht mehr gedrückt ist
-		while ( isPressed(BUTTON_RIGHT) );
-		}
+	if (movement_counter == 0){
+		next_direction = lowestCounterDirection();
+	} else {
+		next_direction = getTremauxDirection();
+	}
+	// Entscheidung auf Bilschirm ausgeben und Aufforderung, ins nächste Feld platziert zu werden
+	displayMovementDecision();
 
+	// Orientierung aktualisieren. Orientierung == Richtung, in die Zuletzt gefahren wurde
+	orientation = next_direction;
 
+	// Nächste Position bestimmen
+	updateNextPosition();
 
-		// Entscheidung auf Bilschirm ausgeben und Aufforderung, ins nächste Feld platziert zu werden
-		// Position aktualisieren
-		// Orientierung aktualisieren. Orientierung == Richtung, in die Zuletzt gefahren wurde
-		// Tremaux Counter aktualisieren
-		// Anzahl der zurückgelegten Felder aktualisieren
+	// Nächstes Feld bestimmen
+	next_cell = &map[next_pos[0]][next_pos[1]];
+
+	// Tremaux Counter aktualisieren
+	updateTremauxCounters();
+
+	// Position aktualisieren
+	current_pos[0] = next_pos[0];
+	current_pos[1] = next_pos[1];
+
+	// Anzahl der zurückgelegten Felder aktualisieren
+	movement_counter ++;
 }
 
 
