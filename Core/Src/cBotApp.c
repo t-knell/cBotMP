@@ -34,27 +34,6 @@ char orientation = 0; // N=0 S=1 E=2 W=3
 int movement_counter = 0; // Anzahl der zurückgelegten Felder
 int next_direction = 0; // Richtungsanweisung für die nächste Bewegung
 
-
-void init(){
-	// LEDs setzen
-	clearLeds();
-	int bright_white = getColorHSV(0, 0, 50);
-	int dim_white = getColorHSV(0,0,1);
-	for (int i=0; i<8; i++){
-		setLed(i, dim_white);
-	}
-	setLed(8, bright_white);
-	setLed(9, bright_white);
-	updateLeds();
-
-	for (int i; i<15; i++){
-		for (int j; j<15; j++){
-			map[i][j] = base_cell;
-		}
-	}
-
-}
-
 // Überprüft, ob das Ziel erreicht wurde
 char goalReached(){
 	int counter = 0;
@@ -150,10 +129,6 @@ void displayCell(){
 }
 
 // Wähle die Richtung mit dem niedrigsten erlaubten Counter Wert
-// ToDo: Problem, dass er jetzt auch als erste Bewegung das Feld hinter sich auswählen kann
-// das könnte zu Crash führen, da er dieses Feld nicht mit seinen Sensoren analysieren kann
-// als Lösung könnte man ihn einmal um 90 Grad drehen lassen, damit er alle Himmelsrichtungen
-// scannen kann
 int lowestCounterDirection(){
 	for (int i = 0; i<2; i++) {
 		if (current_cell->counter_n == i) {
@@ -262,7 +237,7 @@ char cellVisited() {
 	return 0;
 }
 
-// Gibt Tremaux COunter basierend auf der Himmelsrichtung zurück
+// Gibt Tremaux Counter basierend auf der Himmelsrichtung zurück
 char getCounterFromDirection(char direction) {
 	if (direction == 0){
 		return current_cell->counter_n;
@@ -299,13 +274,6 @@ char getTremauxDirection() {
 		return opposite_direction;
 	}
 	return lowest_counter_direction;
-
-
-	// Wenn zwei Wege offen sind, dann den nehmen, durch den wir nicht gefahren sind -> Pfad geht weiter
-	// Wenn mehr als zwei Wege offen sind und wir das erste Mal an dieser Kreuzung sind, dann einen zufälligen, nicht befahrenen Weg wählen & Counter aktualisieren
-	// Wenn mehr als zwei Wege offen sind, aber andere Wege in der Kreuzung markiert sind und der eben durchfahrene Weg keinen Counter=2 Wert hat, dann wieder umkehren
-	// Wenn mehr als zwei offen sind, die Kreuzung schon Markierungen hat und der eben durchfahrene Weg Counter=2 hat, dann den Weg mit den niedrigsten Markierungen wählen. Falls gleichstand, dann random einen wählen
-	// Wenn das alles nicht der Fall ist, dann Selbstzerstörung
 }
 
 // Aktualisiert die Tremaux Counter
@@ -341,9 +309,136 @@ void updateNextPosition() {
 	}
 }
 
+// Um 90° drehen
+void turn90(char direction) {
+	// 0 ist rechts
+	int rpm_left, rpm_right;
+	if (direction == 0) {
+		rpm_left = 15;
+		rpm_right = -15;
+	} else if (direction == 1) {
+		rpm_left = -15;
+		rpm_right = 15;
+	}
+	setMotorRpm(rpm_left, rpm_right);
+	HAL_Delay(2400);
+	rpm_left = 0;
+	rpm_right = 0;
+	setMotorRpm(rpm_left, rpm_right);
+}
+
+// Um 180° drehen
+void turn180() {
+	int rpm_left = -15, rpm_right = 15;
+	setMotorRpm(rpm_left, rpm_right);
+	HAL_Delay(4800);
+	rpm_left = 0;
+	rpm_right = 0;
+	setMotorRpm(rpm_left, rpm_right);
+}
+
+// Ein Feld vorwärts fahren
+void moveOneFieldForward() {
+	int speed = 15;
+	setMotorRpm(speed, speed);
+	HAL_Delay(2000);
+	speed = 0;
+	setMotorRpm(speed, speed);
+}
+
+// Orientierung zur gegebenen Richtung ändern
+void turnToDirection(char direction) {
+	if (orientation == 0) {
+		if (direction == 0) {
+			return;
+		}
+		if (orientation == 1) {
+			turn180();
+		} else if (orientation == 2) {
+			turn90(1);
+		} else if (orientation == 3) {
+			turn90(0);
+		}
+	} else if (orientation == 1) {
+		if (direction == 1) {
+			return;
+		}
+		if (orientation == 0) {
+			turn180();
+		} else if (orientation == 3) {
+			turn90(1);
+		} else if (orientation == 2) {
+			turn90(0);
+		}
+	} else if (orientation == 2) {
+		if (direction == 2) {
+			return;
+		}
+		if (orientation == 3) {
+			turn180();
+		} else if (orientation == 0) {
+			turn90(1);
+		} else if (orientation == 1) {
+			turn90(0);
+		}
+	} else if (orientation == 3) {
+		if (direction == 3) {
+			return;
+		}
+		if (orientation == 2) {
+			turn180();
+		} else if (orientation == 1) {
+			turn90(1);
+		} else if (orientation == 0) {
+			turn90(0);
+		}
+	}
+}
+
+
+// Orientiere dich in die richtige Richtung und fahr ins nächste Feld
+void moveToNextField(char direction) {
+	if (direction == orientation) {
+		moveOneFieldForward();
+	} else {
+		turnToDirection(direction);
+		moveOneFieldForward();
+	}
+}
+
+
+void init(){
+	// Welcome Bildschirm
+	char text[] = "Press button to start!";
+	int color_code = 1;
+	u8g2_ClearBuffer(display);
+	u8g2_SetDrawColor(display, color_code);
+	u8g2_SetFont(display, u8g2_font_6x10_tr);
+	u8g2_DrawStr(display, (128 - u8g2_GetStrWidth(display, text))/2, 40, text);
+	u8g2_SendBuffer(display);
+
+	// LEDs setzen
+	clearLeds();
+	int bright_white = getColorHSV(0, 0, 50);
+	int dim_white = getColorHSV(0,0,1);
+	for (int i=0; i<8; i++){
+		setLed(i, dim_white);
+	}
+	setLed(8, bright_white);
+	setLed(9, bright_white);
+	updateLeds();
+
+	for (int i; i<15; i++){
+		for (int j; j<15; j++){
+			map[i][j] = base_cell;
+		}
+	}
+
+}
+
+
 void loop(){
 	current_cell = &map[current_pos[0]][current_pos[1]];
-
 	// Auf Knopfdruck warten
 	char button_pressed = 0;
 	while (!button_pressed) {
@@ -378,6 +473,15 @@ void loop(){
 
 	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
 	checkForWalls();
+
+	// Falls noch nicht bewegt, einmal um 90° drehen und erneut scannen, um auch die hintere Wand erkennen zu können
+	if (movement_counter == 0) {
+		turn90(0);
+		orientation = 2;
+		checkForWalls();
+		turn90(1);
+		orientation = 0;
+	}
 
 	// Feld auf Display ausgeben
 	displayCell();
