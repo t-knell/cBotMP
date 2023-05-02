@@ -11,7 +11,6 @@
 #include <string.h>
 
 typedef struct {
-	// Braucht jetzt 4 Byte, könnte man theoretisch auf 2 Byte reduzieren, aber super viel Aufwand und schlecht übersichtlich
 	// Wand = 9, nicht durchfahren & offen = 0, 1 mal durchfahren = 1, 2 mal durchfahren = 2
 	char counter_n;
 	char counter_s;
@@ -316,7 +315,7 @@ void turn90(char direction) {
 		rpm_right = 15;
 	}
 	setMotorRpm(rpm_left, rpm_right);
-	HAL_Delay(2400);
+	HAL_Delay(1950);
 	rpm_left = 0;
 	rpm_right = 0;
 	setMotorRpm(rpm_left, rpm_right);
@@ -326,9 +325,7 @@ void turn90(char direction) {
 void turn180() {
 	int rpm_left = -15, rpm_right = 15;
 	setMotorRpm(rpm_left, rpm_right);
-	HAL_Delay(470
-
-			0);
+	HAL_Delay(3880);
 	rpm_left = 0;
 	rpm_right = 0;
 	setMotorRpm(rpm_left, rpm_right);
@@ -338,7 +335,7 @@ void turn180() {
 void moveOneFieldForward() {
 	int speed = 15;
 	setMotorRpm(speed, speed);
-	HAL_Delay(8120);
+	HAL_Delay(5300);
 	speed = 0;
 	setMotorRpm(speed, speed);
 }
@@ -437,7 +434,6 @@ void init(){
 			button_pressed = 1;
 			while ( isPressed(BUTTON_RIGHT) );
 		}
-		HAL_Delay(20);
 	}
 
 
@@ -447,16 +443,8 @@ char button_pressed = 0;
 
 void loop(){
 	current_cell = &map[current_pos[0]][current_pos[1]];
-	// Auf Knopfdruck warten
-	while (!button_pressed) {
-		if (isPressed(BUTTON_RIGHT)) {
-			button_pressed = 1;
-			while ( isPressed(BUTTON_RIGHT) );
-		}
-		HAL_Delay(20);
-	}
 
-		// Check, ob am Ziel angekommen
+	// Check, ob am Ziel angekommen
 	if(goalReached()){
 		u8g2_ClearBuffer(display);
 
