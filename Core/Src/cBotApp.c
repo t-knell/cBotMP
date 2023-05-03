@@ -11,6 +11,7 @@
 #include <string.h>
 
 typedef struct {
+	// Braucht jetzt 4 Byte, könnte man theoretisch auf 2 Byte reduzieren, aber super viel Aufwand und schlecht übersichtlich
 	// Wand = 9, nicht durchfahren & offen = 0, 1 mal durchfahren = 1, 2 mal durchfahren = 2
 	char counter_n;
 	char counter_s;
@@ -401,6 +402,165 @@ void moveToNextField(char direction) {
 }
 
 
+void correction() {
+	int rpmLeft;
+	int rpmRight;
+	int min_value_side = 70;
+	int min_value_mid = 70;
+
+	int sensor_links = getRangeMm(SENSOR_LEFT);
+	int sensor_rechts = getRangeMm(SENSOR_RIGHT);
+	int sensor_mitte = getRangeMm(SENSOR_MIDDLE);
+
+	while ((sensor_rechts < min_value_side) || (sensor_links < min_value_side) || (sensor_mitte < min_value_mid)) {
+
+		sensor_links = getRangeMm(SENSOR_LEFT);
+		sensor_rechts = getRangeMm(SENSOR_RIGHT);
+		sensor_mitte = getRangeMm(SENSOR_MIDDLE);
+
+		if(sensor_rechts < min_value_side ) {
+
+			rpmLeft = -10;
+			rpmRight = -10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(2500);
+			rpmLeft = -10;
+			rpmRight = 10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(300);
+			rpmLeft = 10;
+			rpmRight = 10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(2500);
+			rpmLeft = 10;
+			rpmRight = -10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(150);
+			rpmLeft = 0;
+			rpmRight = 0;
+			setMotorRpm(rpmLeft, rpmRight);
+
+
+		}
+
+		if(sensor_links < min_value_side ) {
+
+			rpmLeft = -10;
+			rpmRight = -10;
+			HAL_Delay(2500);
+			setMotorRpm(rpmLeft, rpmRight);
+			rpmLeft = 10;
+			rpmRight = -10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(300);
+			rpmLeft = 10;
+			rpmRight = 10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(2500);
+			rpmLeft = -10;
+			rpmRight = 10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(150);
+			rpmLeft = 0;
+			rpmRight = 0;
+			setMotorRpm(rpmLeft, rpmRight);
+
+		}
+		if(sensor_mitte < min_value_mid ) {
+
+			rpmLeft = -10;
+			rpmRight = -10;
+			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(500);
+			rpmLeft = 0;
+			rpmRight = 0;
+			setMotorRpm(rpmLeft, rpmRight);
+		}
+
+	}
+}
+
+void Siegestanz() {
+
+	int hueStart = 0;
+	int rpmLeft = 0;
+	int rpmRight = 0;
+
+	// update LEDs
+	hueStart = (hueStart - 12 + 1536) % 1536;
+	for ( int i = 0; i < 10; i++ ) { //Ansteuerung 10 LEDs
+		setLed(i, getColorHSV((hueStart + 128 * i) % 1536, 50, 0)); //Eingabe Farbcode
+	}
+	updateLeds();
+	playMario();
+	// perform dancing moves
+	if (isPlaying()){
+		while (isPlaying()) {
+		rpmLeft = 10;
+		rpmRight = -10;
+		setMotorRpm(rpmLeft, rpmRight);
+		for ( int a = 0; a < 5; a++) {
+			for ( int i = 0; i < 10; i++) {
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+2, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+4, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+6, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				HAL_Delay(50);
+			}
+		}
+
+		rpmLeft = -10;
+		rpmRight = 10;
+		setMotorRpm(rpmLeft, rpmRight);
+		for ( int a = 0; a < 5; a++) {
+			for ( int i = 0; i < 10; i++) {
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				HAL_Delay(50);
+			}
+		}
+
+		rpmLeft = 5;
+		rpmRight = 5;
+		setMotorRpm(rpmLeft, rpmRight);
+		for ( int a = 0; a < 5; a++) {
+			for ( int i = 0; i < 10; i++) {
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				HAL_Delay(50);
+			}
+		}
+
+		rpmLeft = -5;
+		rpmRight = -5;
+		setMotorRpm(rpmLeft, rpmRight);
+		for ( int a = 0; a < 5; a++) {
+			for ( int i = 0; i < 10; i++) {
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				HAL_Delay(50);
+			}
+		}
+		}
+
+	}
+	if (!isPlaying()) {
+		rpmLeft = 0;
+		rpmRight = 0;
+		setMotorRpm(rpmLeft, rpmRight);
+	}
+	// wait for some time
+	HAL_Delay(20);
+}
+
+
+
 void init(){
 	// Welcome Bildschirm
 	char text[] = "Press button to start!";
@@ -427,6 +587,7 @@ void init(){
 			map[i][j] = base_cell;
 		}
 	}
+
 	// Auf Knopfdruck warten
 	char button_pressed = 0;
 	while (!button_pressed) {
@@ -443,8 +604,7 @@ char button_pressed = 0;
 
 void loop(){
 	current_cell = &map[current_pos[0]][current_pos[1]];
-
-	// Check, ob am Ziel angekommen
+		// Check, ob am Ziel angekommen
 	if(goalReached()){
 		u8g2_ClearBuffer(display);
 
@@ -461,10 +621,15 @@ void loop(){
 
 		u8g2_SendBuffer(display);
 
+		Siegestanz();
+
 		while (1) {
 
 		}
 	}
+
+	//Ausgleichen der Abstände zur Wand
+	correction();
 
 	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
 	checkForWalls();
