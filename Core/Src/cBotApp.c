@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <string.h>
+#include "marioSong.h"
 
 typedef struct {
 	// Braucht jetzt 4 Byte, könnte man theoretisch auf 2 Byte reduzieren, aber super viel Aufwand und schlecht übersichtlich
@@ -51,12 +52,35 @@ char goalReached(){
 	}
 }
 
+
+// Diese Funktion gibt stabilere Distanzen der Ultraschallsensoren zurück, indem sie von mehreren Werten einen Durchschnittswert nimmt
+// ToDo: Falls das nicht reicht, dann noch Ausreißer rausnehmen
+int getAvgRangeMm(sensorId id) {
+	int distance;
+	int n = 5;
+	int sum = 0;
+	int average;
+	char counter = 0;
+	for (int i = 0; i < n; i++) {
+		distance = getRangeMm(id);
+		while (distance > 1000 || counter < 5) {
+			distance = getRangeMm(id);
+			counter ++;
+			HAL_Delay(1);
+		}
+		sum += distance;
+		HAL_Delay(1);
+	}
+	average = sum / n;
+	return average;
+
+}
 // Diese Funktion sucht nach Wänden um den Roboter und updated anschließend das Mapping
 // ToDo: In zwei Funktionen splitten - Wände suchen und Mapping aktualisieren
 // ToDo: Einen richtigen ErrorState herbeiführen können, wenn etwas falsch läuft -> Wie Py Exception
 void checkForWalls(){
-	int wall_threshold = 200; // mm
-	int sensor_values[] = {getRangeMm(SENSOR_LEFT), getRangeMm(SENSOR_MIDDLE), getRangeMm(SENSOR_RIGHT)};
+	int wall_threshold = 150; // mm
+	int sensor_values[] = {getAvgRangeMm(SENSOR_LEFT), getAvgRangeMm(SENSOR_MIDDLE), getAvgRangeMm(SENSOR_RIGHT)};
 	int sensor_values_nsew[4];
 
 	// Sensor Werte in ihre Himmelsrichtung Orientierung umtragen
@@ -176,7 +200,7 @@ void displayMovementDecision(){
 
 // Gib die Anzahl der offenen Wege zurück
 char getNumberOfExits() {
-	char counter;
+	char counter = 0;
 	if (current_cell->counter_n < 2) {
 		counter += 1;
 	}
@@ -336,7 +360,7 @@ void turn180() {
 void moveOneFieldForward() {
 	int speed = 15;
 	setMotorRpm(speed, speed);
-	HAL_Delay(5300);
+	HAL_Delay(5250);
 	speed = 0;
 	setMotorRpm(speed, speed);
 }
@@ -401,24 +425,33 @@ void moveToNextField(char direction) {
 	}
 }
 
-
+// Orientierung und Abstand zur Wand anpassen, wenn Grenzwert unterschritten
 void correction() {
 	int rpmLeft;
 	int rpmRight;
 	int min_value_side = 70;
 	int min_value_mid = 70;
 
-	int sensor_links = getRangeMm(SENSOR_LEFT);
-	int sensor_rechts = getRangeMm(SENSOR_RIGHT);
-	int sensor_mitte = getRangeMm(SENSOR_MIDDLE);
+	int sensor_left = getAvgRangeMm(SENSOR_LEFT);
+	int sensor_right = getAvgRangeMm(SENSOR_RIGHT);
+	int sensor_middle = getAvgRangeMm(SENSOR_MIDDLE);
 
-	while ((sensor_rechts < min_value_side) || (sensor_links < min_value_side) || (sensor_mitte < min_value_mid)) {
+	char first_correction = 1;
 
-		sensor_links = getRangeMm(SENSOR_LEFT);
-		sensor_rechts = getRangeMm(SENSOR_RIGHT);
-		sensor_mitte = getRangeMm(SENSOR_MIDDLE);
 
-		if(sensor_rechts < min_value_side ) {
+	while ((sensor_right < min_value_side) || (sensor_left < min_value_side) || (sensor_middle < min_value_mid)) {
+		// Bei mehreren Korrekturzügen muss das Zurückdrehen angepasst werden, da der Roboter sonst zu wenig dreht
+		int turn_back_delay;
+		if (first_correction == 1) {
+			turn_back_delay = 200;
+			first_correction = 0;
+		} else {
+			turn_back_delay = 300;
+		}
+
+		sensor_right = getRangeMm(SENSOR_RIGHT);
+
+		if(sensor_right < min_value_side ) {
 
 			rpmLeft = -10;
 			rpmRight = -10;
@@ -435,20 +468,20 @@ void correction() {
 			rpmLeft = 10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
-			HAL_Delay(150);
+			HAL_Delay(turn_back_delay);
 			rpmLeft = 0;
 			rpmRight = 0;
 			setMotorRpm(rpmLeft, rpmRight);
-
-
 		}
 
-		if(sensor_links < min_value_side ) {
+		sensor_left = getRangeMm(SENSOR_LEFT);
+
+		if(sensor_left < min_value_side ) {
 
 			rpmLeft = -10;
 			rpmRight = -10;
-			HAL_Delay(2500);
 			setMotorRpm(rpmLeft, rpmRight);
+			HAL_Delay(2500);
 			rpmLeft = 10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
@@ -460,18 +493,20 @@ void correction() {
 			rpmLeft = -10;
 			rpmRight = 10;
 			setMotorRpm(rpmLeft, rpmRight);
-			HAL_Delay(150);
+			HAL_Delay(turn_back_delay);
 			rpmLeft = 0;
 			rpmRight = 0;
 			setMotorRpm(rpmLeft, rpmRight);
-
 		}
-		if(sensor_mitte < min_value_mid ) {
+
+		sensor_middle = getRangeMm(SENSOR_MIDDLE);
+
+		if(sensor_middle < min_value_mid ) {
 
 			rpmLeft = -10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
-			HAL_Delay(500);
+			HAL_Delay(600);
 			rpmLeft = 0;
 			rpmRight = 0;
 			setMotorRpm(rpmLeft, rpmRight);
@@ -480,7 +515,7 @@ void correction() {
 	}
 }
 
-void Siegestanz() {
+void victoryDance() {
 
 	int hueStart = 0;
 	int rpmLeft = 0;
@@ -604,7 +639,11 @@ char button_pressed = 0;
 
 void loop(){
 	current_cell = &map[current_pos[0]][current_pos[1]];
-		// Check, ob am Ziel angekommen
+
+	//Ausgleichen der Abstände zur Wand
+	correction();
+
+	// Check, ob am Ziel angekommen
 	if(goalReached()){
 		u8g2_ClearBuffer(display);
 
@@ -621,15 +660,12 @@ void loop(){
 
 		u8g2_SendBuffer(display);
 
-		Siegestanz();
+		victoryDance();
 
 		while (1) {
 
 		}
 	}
-
-	//Ausgleichen der Abstände zur Wand
-	correction();
 
 	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
 	checkForWalls();
@@ -643,15 +679,12 @@ void loop(){
 		orientation = 0;
 	}
 
-	// Feld auf Display ausgeben
-	displayCell();
-
 	if (movement_counter == 0){
 		next_direction = lowestCounterDirection();
 	} else {
 		next_direction = getTremauxDirection();
 	}
-	// Entscheidung auf Bilschirm ausgeben und Aufforderung, ins nächste Feld platziert zu werden
+	// Entscheidung auf Bilschirm ausgeben
 	displayMovementDecision();
 
 	// Zum nächsten Feld navigieren
