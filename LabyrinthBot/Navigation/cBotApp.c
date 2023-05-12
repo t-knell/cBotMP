@@ -73,8 +73,8 @@ int getAvgRangeMm(sensorId id) {
 	}
 	average = sum / n;
 	return average;
-}
 
+}
 // Diese Funktion sucht nach Wänden um den Roboter und updated anschließend das Mapping
 // ToDo: In zwei Funktionen splitten - Wände suchen und Mapping aktualisieren
 // ToDo: Einen richtigen ErrorState herbeiführen können, wenn etwas falsch läuft -> Wie Py Exception
@@ -679,12 +679,15 @@ void loop(){
 		orientation = 0;
 	}
 
+	// Feld auf Display ausgeben
+	displayCell();
+
 	if (movement_counter == 0){
 		next_direction = lowestCounterDirection();
 	} else {
 		next_direction = getTremauxDirection();
 	}
-	// Entscheidung auf Bilschirm ausgeben
+	// Entscheidung auf Bilschirm ausgeben und Aufforderung, ins nächste Feld platziert zu werden
 	displayMovementDecision();
 
 	// Zum nächsten Feld navigieren
