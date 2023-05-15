@@ -1,6 +1,6 @@
 /*
- * Navigation
- * Versuch vollständige Navigation mit Algo etc in das Labyrinth zu integrieren
+ * Labyrinth Bot
+ * Dieses Programm lässt den Roboter eigenständig ein beliebiges Labyrinth (aus 250mm langen Wänden in 90° oder 180° Winkeln) lösen
  */
 
 
@@ -11,9 +11,19 @@
 #include <string.h>
 #include "marioSong.h"
 
+enum direction {
+	NORTH,
+	SOUTH,
+	EAST,
+	WEST,
+};
+
+enum turn_direction {
+	RIGHT,
+	LEFT
+};
+
 typedef struct {
-	// Braucht jetzt 4 Byte, könnte man theoretisch auf 2 Byte reduzieren, aber super viel Aufwand und schlecht übersichtlich
-	// Wand = 9, nicht durchfahren & offen = 0, 1 mal durchfahren = 1, 2 mal durchfahren = 2
 	char counter_n;
 	char counter_s;
 	char counter_e;
@@ -26,21 +36,69 @@ int current_pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
 int next_pos[2] = {7, 7};
 cell *current_cell;
 cell *next_cell;
-char orientation = 0; // N=0 S=1 E=2 W=3
-int movement_counter = 0; // Anzahl der zurückgelegten Felder
-int next_direction = 0; // Richtungsanweisung für die nächste Bewegung
+char current_direction = NORTH;
+int next_direction = NORTH; // Richtungsanweisung für die nächste Bewegung
+int moves = 0; // Anzahl der zurückgelegten Felder
+
+
+// Gibt eine Zeile Text auf dem Bildschirm aus
+void printToDisplay(char text[], int pos_x, int pos_y){
+	int color_code = 1;
+	u8g2_ClearBuffer(display);
+	u8g2_SetDrawColor(display, color_code);
+	u8g2_SetFont(display, u8g2_font_6x10_tr);
+	u8g2_DrawStr(display, pos_x, pos_y, text);
+	u8g2_SendBuffer(display);
+}
+
+
+// Gibt mehrere Zeilen Text auf dem Bildschirm aus
+void multiPrintToDisplay(char** text, int n_strings, int start_x, int start_y){
+	int color_code = 1;
+	u8g2_ClearBuffer(display);
+	u8g2_SetDrawColor(display, color_code);
+	u8g2_SetFont(display, u8g2_font_6x10_tr);
+	for (int i=0; i<n_strings; i++){
+		u8g2_DrawStr(display, start_x, start_y, text[i]);
+		start_y += 12;
+	}
+
+	u8g2_SendBuffer(display);
+}
+
+
+// Bringt den Roboter in einen stabilen Error Zustand und gibt eine Benachrichtigung auf dem Display aus
+void goToErrorState() {
+	// Motor anhalten
+	int rpm_left = 0;
+	int rpm_right = 0;
+	setMotorRpm(rpm_left, rpm_right);
+
+	char* strings[] = {
+		"Programmfehler!",
+		"Reset druecken, um",
+		"Programm neuzustarten"
+	};
+	int pos_x = 0;
+	int pos_y = 30;
+	multiPrintToDisplay(strings, 3, pos_x, pos_y);
+	while (1){
+	}
+
+}
+
 
 // Überprüft, ob das Ziel erreicht wurde
 char goalReached(){
 	int counter = 0;
 	int sleep_duration = 20;
 	int value_threshold = 200;
-	int time_threshold = 1000; //in ms
+	int time_threshold = 500; //in ms
 	int sensor_left = getLightValue(SENSOR_LEFT);
 	int sensor_right = getLightValue(SENSOR_RIGHT);
 	while (1){
 		if (sensor_left >= value_threshold && sensor_right >= value_threshold){
-				return 0;
+			return 0;
 		}
 		else{
 			counter += sleep_duration;
@@ -53,8 +111,7 @@ char goalReached(){
 }
 
 
-// Diese Funktion gibt stabilere Distanzen der Ultraschallsensoren zurück, indem sie von mehreren Werten einen Durchschnittswert nimmt
-// ToDo: Falls das nicht reicht, dann noch Ausreißer rausnehmen
+// Gibt einen Durchschnittswert der Ultraschall-Distanzmessung zurück
 int getAvgRangeMm(sensorId id) {
 	int distance;
 	int n = 5;
@@ -73,49 +130,48 @@ int getAvgRangeMm(sensorId id) {
 	}
 	average = sum / n;
 	return average;
-
 }
-// Diese Funktion sucht nach Wänden um den Roboter und updated anschließend das Mapping
-// ToDo: In zwei Funktionen splitten - Wände suchen und Mapping aktualisieren
-// ToDo: Einen richtigen ErrorState herbeiführen können, wenn etwas falsch läuft -> Wie Py Exception
+
+
+// Sucht nach Wänden um den Roboter und aktualisiert anschließend die Counter der aktuellen Zelle
 void checkForWalls(){
 	int wall_threshold = 150; // mm
 	int sensor_values[] = {getAvgRangeMm(SENSOR_LEFT), getAvgRangeMm(SENSOR_MIDDLE), getAvgRangeMm(SENSOR_RIGHT)};
 	int sensor_values_nsew[4];
 
 	// Sensor Werte in ihre Himmelsrichtung Orientierung umtragen
-	if (orientation==0){
-		sensor_values_nsew[0] = sensor_values[1];
-		sensor_values_nsew[1] = 999; // Von da sind wir gerade gekommen -> High value damit in der Abfrage danach es nicht reinrutscht
-		sensor_values_nsew[2] = sensor_values[2];
-		sensor_values_nsew[3] = sensor_values[0];
-	} else if(orientation==1){
-		sensor_values_nsew[0] = 999;
-		sensor_values_nsew[1] = sensor_values[1];
-		sensor_values_nsew[2] = sensor_values[0];
-		sensor_values_nsew[3] = sensor_values[2];
-	} else if(orientation==2){
-		sensor_values_nsew[0] = sensor_values[0];
-		sensor_values_nsew[1] = sensor_values[2];
-		sensor_values_nsew[2] = sensor_values[1];
-		sensor_values_nsew[3] = 999;
-	} else if(orientation==3){
-		sensor_values_nsew[0] = sensor_values[2];
-		sensor_values_nsew[1] = sensor_values[0];
-		sensor_values_nsew[2] = 999;
-		sensor_values_nsew[3] = sensor_values[1];
+	if (current_direction == NORTH){
+		sensor_values_nsew[NORTH] = sensor_values[1];
+		sensor_values_nsew[SOUTH] = -1; // Von da ist der Roboter gerade gekommen
+		sensor_values_nsew[EAST] = sensor_values[2];
+		sensor_values_nsew[WEST] = sensor_values[0];
+	} else if(current_direction == SOUTH){
+		sensor_values_nsew[NORTH] = -1;
+		sensor_values_nsew[SOUTH] = sensor_values[1];
+		sensor_values_nsew[EAST] = sensor_values[0];
+		sensor_values_nsew[WEST] = sensor_values[2];
+	} else if(current_direction == EAST){
+		sensor_values_nsew[NORTH] = sensor_values[0];
+		sensor_values_nsew[SOUTH] = sensor_values[2];
+		sensor_values_nsew[EAST] = sensor_values[1];
+		sensor_values_nsew[WEST] = -1;
+	} else if(current_direction == WEST){
+		sensor_values_nsew[NORTH] = sensor_values[2];
+		sensor_values_nsew[SOUTH] = sensor_values[0];
+		sensor_values_nsew[EAST] = -1;
+		sensor_values_nsew[WEST] = sensor_values[1];
 	} else{
 		// Something went wrong
 	}
 
-	// Checken ob in den Himmelsrichtungen eine Wand ist und falls ja, dies in der Karte vermerken
+	// Überprüft, ob in den Himmelsrichtungen eine Wand ist und falls ja, dies in der Karte vermerken
 	for (int i=0; i<4; i++) {
-		if (sensor_values_nsew[i] <= wall_threshold) {
-			if (i == 0) {
+		if ((sensor_values_nsew[i] <= wall_threshold) && (sensor_values_nsew[i] > 0)) {
+			if (i == NORTH) {
 				current_cell->counter_n = 9;
-			} else if (i == 1) {
+			} else if (i == SOUTH) {
 				current_cell->counter_s = 9;
-			} else if (i == 2) {
+			} else if (i == EAST) {
 				current_cell->counter_e	= 9;
 			} else {
 				current_cell->counter_w = 9;
@@ -124,31 +180,9 @@ void checkForWalls(){
 	}
 }
 
-// Diese Funktion gibt das aktuelle Feld auf dem Display aus.
-// Zeigt an, wo Wände sind und die Tremaux Counter
-void displayCell(){
-	char text[20];
-	int color_code = 1;
-	u8g2_ClearBuffer(display);
-	u8g2_SetDrawColor(display, color_code);
-	u8g2_SetFont(display, u8g2_font_6x10_tr);
 
-	sprintf(text, "%d", current_cell->counter_n);
-	u8g2_DrawStr(display, (128 - u8g2_GetStrWidth(display, text))/2, 10, text);
-
-	sprintf(text, "%d", current_cell->counter_s);
-	u8g2_DrawStr(display, (128 - u8g2_GetStrWidth(display, text))/2, 60, text);
-
-	sprintf(text, "%d", current_cell->counter_e);
-	u8g2_DrawStr(display, 128 - u8g2_GetStrWidth(display, text), 40, text);
-
-	sprintf(text, "%d", current_cell->counter_w);
-	u8g2_DrawStr(display, 0, 40, text);
-	u8g2_SendBuffer(display);
-}
-
-// Wähle die Richtung mit dem niedrigsten erlaubten Counter Wert
-int lowestCounterDirection(){
+// Gibt eine Richtung mit dem niedrigsten erlaubten Counter Wert zurück
+int getLowestCounterDirection(){
 	for (int i = 0; i<2; i++) {
 		if (current_cell->counter_n == i) {
 			return 0;
@@ -163,42 +197,12 @@ int lowestCounterDirection(){
 			return 3;
 		}
 	}
-	return 999;
+	goToErrorState();
+	return -1;
 }
 
-// Zeige die Richtung auf dem Display an, in die der Roboter als nächstes fahren möchte
-void displayMovementDecision(){
-	char direction[10];
-	if (next_direction == 0) {
-		strcpy(direction, "North");
-	}
-	if (next_direction == 1) {
-		strcpy(direction, "South");
-	}
-	if (next_direction == 2) {
-		strcpy(direction, "East");
-	}
-	if (next_direction == 3) {
-		strcpy(direction, "West");
-	}
-	u8g2_ClearBuffer(display);
 
-	int color_code = 1;
-	u8g2_SetDrawColor(display, color_code);
-
-	char text[50] = "Move towards: ";
-	strcat(text, direction);
-	u8g2_SetFont(display, u8g2_font_6x10_tr); // 2. Input ist die Schriftart und Größe
-
-	int position_x = 0; //0 ist ganz links
-	int position_y = (64 + u8g2_GetAscent(display))/2; // Y so, dass Text in der Mitte angezeigt wird
-
-	u8g2_DrawStr(display, position_x, position_y, text);
-
-	u8g2_SendBuffer(display);
-}
-
-// Gib die Anzahl der offenen Wege zurück
+// Gibt die Anzahl der offenen Wege zurück
 char getNumberOfExits() {
 	char counter = 0;
 	if (current_cell->counter_n < 2) {
@@ -213,27 +217,30 @@ char getNumberOfExits() {
 	if (current_cell->counter_w < 2) {
 		counter += 1;
 	}
-	return 99;
+	return counter;
 }
+
 
 // Gibt die entgegengestzte Himmelsrichtung zurück
 char getOppositeDirection(char direction) {
-	if (direction == 0){
-		return 1;
+	if (direction == NORTH){
+		return SOUTH;
 	}
-	if (direction == 1){
-		return 0;
+	if (direction == SOUTH){
+		return NORTH;
 	}
-	if (direction == 2){
-		return 3;
+	if (direction == EAST){
+		return WEST;
 	}
-	if (direction == 3){
-		return 2;
+	if (direction == WEST){
+		return EAST;
 	}
-	return 99;
+	goToErrorState();
+	return -1;
 }
 
-// Gibt zurück, ob der Roboter schonmal in der Zelle war
+
+// Überprüft, ob der Roboter schon in der Zelle war
 char cellVisited() {
 	char counter;
 	for (int i = 1; i < 3; i++){
@@ -256,86 +263,95 @@ char cellVisited() {
 	return 0;
 }
 
+
 // Gibt Tremaux Counter basierend auf der Himmelsrichtung zurück
 char getCounterFromDirection(char direction) {
-	if (direction == 0){
+	if (direction == NORTH){
 		return current_cell->counter_n;
 	}
-	if (direction == 1){
+	if (direction == SOUTH){
 		return current_cell->counter_s;
 	}
-	if (direction == 2){
+	if (direction == EAST){
 		return current_cell->counter_e;
 	}
-	if (direction == 3){
+	if (direction == WEST){
 		return current_cell->counter_w;
 	}
-	return 99;
+	goToErrorState();
+	return -1;
 }
+
 
 // Gibt zurück, in welche Richtung laut dem Tremaux Algorithmus als nächstes gefahren werden soll
 char getTremauxDirection() {
 	char exits = getNumberOfExits();
-	char opposite_direction = getOppositeDirection(orientation);
-	char lowest_counter_direction = lowestCounterDirection();
-	// Wenn nur der Weg offen ist (Counter ==1), durch den wir gerade gefahren sind, dann durch diesen fahren und den Counter aktualisieren
+	char opposite_direction = getOppositeDirection(current_direction);
+	char lowest_counter_direction = getLowestCounterDirection();
+	// Wenn nur der Weg offen ist (Counter == 1), durch den wir gerade gefahren sind, dann durch diesen fahren und den Counter aktualisieren
 	if (exits == 1){
 		return opposite_direction;
 	}
+	// Wenn nur zwei Wege offen sind, dann den Ausgang mit dem kleineren Counter wählen
 	if (exits == 2) {
 		return lowest_counter_direction;
 	}
+	// Wenn mehr als zwei Wege offen sind und die Zelle vorher noch nicht besucht wurde, eine der Zellen mit dem kleinsten Counter wählen
 	if (!cellVisited()) {
 		return lowest_counter_direction;
 	}
+	// Wenn mehr als zwei Wege offen und die Zelle schon besucht wurde, dann umkehren, außer dieser Ausgang wurde schon 2x benutzt
 	char opposite_direction_counter = getCounterFromDirection(opposite_direction);
 	if ( opposite_direction_counter < 2) {
 		return opposite_direction;
 	}
+	// Wenn Ausgang schon 2x benutzt, dann einen Ausgang mit dem niedrigsten Counter wählen
 	return lowest_counter_direction;
 }
 
+
 // Aktualisiert die Tremaux Counter
 void updateTremauxCounters() {
-	if (orientation == 0){
+	if (current_direction == NORTH){
 		current_cell->counter_n += 1;
 		next_cell->counter_s += 1;
 	}
-	if (orientation == 1){
+	if (current_direction == SOUTH){
 		current_cell->counter_s += 1;
 		next_cell->counter_n += 1;
 	}
-	if (orientation == 2){
+	if (current_direction == EAST){
 		current_cell->counter_e += 1;
 		next_cell->counter_w += 1;
 	}
-	if (orientation == 3){
+	if (current_direction == WEST){
 		current_cell->counter_w += 1;
 		next_cell->counter_e += 1;
 	}
 }
 
+
 // Berechnet die nächste Position und speichert sie ab
 void updateNextPosition() {
-	if (next_direction == 0) {
+	if (next_direction == NORTH) {
 		next_pos[0] -= 1;
-	} else if (next_direction == 1) {
+	} else if (next_direction == SOUTH) {
 		next_pos[0] += 1;
-	} else if (next_direction == 2) {
+	} else if (next_direction == EAST) {
 		next_pos[1] += 1;
-	} else if (next_direction == 3) {
+	} else if (next_direction == WEST) {
 		next_pos[1] -= 1;
 	}
 }
 
-// Um 90° drehen
-void turn90(char direction) {
-	// 0 ist rechts
+
+// Dreht den Roboter um 90° in die gewünschte Richtung
+void turn90(char turn_direction) {
 	int rpm_left, rpm_right;
-	if (direction == 0) {
+	if (turn_direction == RIGHT) {
 		rpm_left = 15;
 		rpm_right = -15;
-	} else if (direction == 1) {
+	} else if (turn_direction == 1) {
 		rpm_left = -15;
 		rpm_right = 15;
 	}
@@ -346,7 +362,8 @@ void turn90(char direction) {
 	setMotorRpm(rpm_left, rpm_right);
 }
 
-// Um 180° drehen
+
+// Dreht den Roboter um 180°
 void turn180() {
 	int rpm_left = -15, rpm_right = 15;
 	setMotorRpm(rpm_left, rpm_right);
@@ -356,68 +373,71 @@ void turn180() {
 	setMotorRpm(rpm_left, rpm_right);
 }
 
-// Ein Feld vorwärts fahren
+
+// Lässt den Roboter ein Feld vorwärts fahren
 void moveOneFieldForward() {
-	int speed = 15;
-	setMotorRpm(speed, speed);
+	int rpm_left = 15, rpm_right = 15;
+	setMotorRpm(rpm_left, rpm_right);
 	HAL_Delay(5250);
-	speed = 0;
-	setMotorRpm(speed, speed);
+	rpm_left = 0;
+	rpm_right = 0;
+	setMotorRpm(rpm_left, rpm_right);
 }
 
-// Orientierung zur gegebenen Richtung ändern
+
+// Ändert Roboter Orientierung zur übergebenen Himmelsrichtung
 void turnToDirection(char direction) {
-	if (orientation == 0) {
-		if (direction == 0) {
+	if (current_direction == NORTH) {
+		if (direction == NORTH) {
 			return;
 		}
-		if (direction == 1) {
+		if (direction == SOUTH) {
 			turn180();
-		} else if (direction == 3) {
-			turn90(1);
-		} else if (direction == 2) {
-			turn90(0);
+		} else if (direction == WEST) {
+			turn90(LEFT);
+		} else if (direction == EAST) {
+			turn90(RIGHT);
 		}
-	} else if (orientation == 1) {
-		if (direction == 1) {
+	} else if (current_direction == SOUTH) {
+		if (direction == SOUTH) {
 			return;
 		}
-		if (direction == 0) {
+		if (direction == NORTH) {
 			turn180();
-		} else if (direction == 2) {
-			turn90(1);
-		} else if (direction == 3) {
-			turn90(0);
+		} else if (direction == EAST) {
+			turn90(LEFT);
+		} else if (direction == WEST) {
+			turn90(RIGHT);
 		}
-	} else if (orientation == 2) {
-		if (direction == 2) {
+	} else if (current_direction == EAST) {
+		if (direction == EAST) {
 			return;
 		}
-		if (direction == 3) {
+		if (direction == WEST) {
 			turn180();
-		} else if (direction == 0) {
-			turn90(1);
-		} else if (direction == 1) {
-			turn90(0);
+		} else if (direction == NORTH) {
+			turn90(LEFT);
+		} else if (direction == SOUTH) {
+			turn90(RIGHT);
 		}
-	} else if (orientation == 3) {
-		if (direction == 3) {
+	} else if (current_direction == WEST) {
+		if (direction == WEST) {
 			return;
 		}
-		if (direction == 2) {
+		if (direction == EAST) {
 			turn180();
-		} else if (direction == 1) {
-			turn90(1);
-		} else if (direction == 0) {
-			turn90(0);
+		} else if (direction == SOUTH) {
+			turn90(LEFT);
+		} else if (direction == NORTH) {
+			turn90(RIGHT);
 		}
 	}
 }
 
 
-// Orientiere dich in die richtige Richtung und fahr ins nächste Feld
+// Manövriert den Roboter in das nächste Feld
 void moveToNextField(char direction) {
-	if (direction == orientation) {
+	if (direction == current_direction) {
 		moveOneFieldForward();
 	} else {
 		turnToDirection(direction);
@@ -425,12 +445,13 @@ void moveToNextField(char direction) {
 	}
 }
 
-// Orientierung und Abstand zur Wand anpassen, wenn Grenzwert unterschritten
-void correction() {
+
+// Richtet den Roboter im Feld neu aus, sobald der Roboter zu nah an eine Wand kommt
+void adjustPosition() {
 	int rpmLeft;
 	int rpmRight;
-	int min_value_side = 70;
-	int min_value_mid = 70;
+	int side_threshold = 70;
+	int front_threshold = 70;
 
 	int sensor_left = getAvgRangeMm(SENSOR_LEFT);
 	int sensor_right = getAvgRangeMm(SENSOR_RIGHT);
@@ -438,21 +459,20 @@ void correction() {
 
 	char first_correction = 1;
 
-
-	while ((sensor_right < min_value_side) || (sensor_left < min_value_side) || (sensor_middle < min_value_mid)) {
-		// Bei mehreren Korrekturzügen muss das Zurückdrehen angepasst werden, da der Roboter sonst zu wenig dreht
+	while ((sensor_right < side_threshold) || (sensor_left < side_threshold) || (sensor_middle < front_threshold)) {
 		int turn_back_delay;
+		// Beim ersten Korrekturzug kürzer zurück drehen als ursprüngliche Drehung, um Schrägheit auszugleichen
 		if (first_correction == 1) {
 			turn_back_delay = 200;
 			first_correction = 0;
+		// Bei mehreren Korrekturzügen muss das Zurückdrehen angepasst werden, da der Roboter sonst überkorrigiert
 		} else {
 			turn_back_delay = 300;
 		}
 
 		sensor_right = getRangeMm(SENSOR_RIGHT);
 
-		if(sensor_right < min_value_side ) {
-
+		if(sensor_right < side_threshold ) {
 			rpmLeft = -10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
@@ -476,8 +496,7 @@ void correction() {
 
 		sensor_left = getRangeMm(SENSOR_LEFT);
 
-		if(sensor_left < min_value_side ) {
-
+		if(sensor_left < side_threshold ) {
 			rpmLeft = -10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
@@ -501,8 +520,7 @@ void correction() {
 
 		sensor_middle = getRangeMm(SENSOR_MIDDLE);
 
-		if(sensor_middle < min_value_mid ) {
-
+		if(sensor_middle < front_threshold ) {
 			rpmLeft = -10;
 			rpmRight = -10;
 			setMotorRpm(rpmLeft, rpmRight);
@@ -515,20 +533,21 @@ void correction() {
 	}
 }
 
-void victoryDance() {
 
+// Initialisiert einen Siegestanz inklusive SuperMario Musik und blinkenden LEDs
+void victoryDance() {
 	int hueStart = 0;
 	int rpmLeft = 0;
 	int rpmRight = 0;
 
-	// update LEDs
 	hueStart = (hueStart - 12 + 1536) % 1536;
-	for ( int i = 0; i < 10; i++ ) { //Ansteuerung 10 LEDs
-		setLed(i, getColorHSV((hueStart + 128 * i) % 1536, 50, 0)); //Eingabe Farbcode
+	for ( int i = 0; i < 10; i++ ) {
+		setLed(i, getColorHSV((hueStart + 128 * i) % 1536, 50, 0));
 	}
 	updateLeds();
+
 	playMario();
-	// perform dancing moves
+
 	if (isPlaying()){
 		while (isPlaying()) {
 		rpmLeft = 10;
@@ -536,10 +555,10 @@ void victoryDance() {
 		setMotorRpm(rpmLeft, rpmRight);
 		for ( int a = 0; a < 5; a++) {
 			for ( int i = 0; i < 10; i++) {
-				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+2, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+4, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+6, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10));
+				setLed(i+2, getColorHSV((hueStart + 200 * a) % 1536, 100, 10));
+				setLed(i+4, getColorHSV((hueStart + 300 * a) % 1536, 100, 10));
+				setLed(i+6, getColorHSV((hueStart + 400 * a) % 1536, 100, 10));
 				HAL_Delay(50);
 			}
 		}
@@ -549,10 +568,10 @@ void victoryDance() {
 		setMotorRpm(rpmLeft, rpmRight);
 		for ( int a = 0; a < 5; a++) {
 			for ( int i = 0; i < 10; i++) {
-				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10));
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10));
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10));
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10));
 				HAL_Delay(50);
 			}
 		}
@@ -562,10 +581,10 @@ void victoryDance() {
 		setMotorRpm(rpmLeft, rpmRight);
 		for ( int a = 0; a < 5; a++) {
 			for ( int i = 0; i < 10; i++) {
-				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10));
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10));
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10));
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10));
 				HAL_Delay(50);
 			}
 		}
@@ -575,36 +594,33 @@ void victoryDance() {
 		setMotorRpm(rpmLeft, rpmRight);
 		for ( int a = 0; a < 5; a++) {
 			for ( int i = 0; i < 10; i++) {
-				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10)); //Eingabe Farbcode
-				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10)); //Eingabe Farbcode
+				setLed(i, getColorHSV((hueStart + 100 * a) % 1536, 100, 10));
+				setLed(i+1, getColorHSV((hueStart + 200 * a) % 1536, 100, 10));
+				setLed(i+3, getColorHSV((hueStart + 300 * a) % 1536, 100, 10));
+				setLed(i+5, getColorHSV((hueStart + 400 * a) % 1536, 100, 10));
 				HAL_Delay(50);
 			}
 		}
 		}
-
 	}
 	if (!isPlaying()) {
 		rpmLeft = 0;
 		rpmRight = 0;
 		setMotorRpm(rpmLeft, rpmRight);
 	}
-	// wait for some time
 	HAL_Delay(20);
 }
 
 
-
 void init(){
-	// Welcome Bildschirm
-	char text[] = "Press button to start!";
-	int color_code = 1;
-	u8g2_ClearBuffer(display);
-	u8g2_SetDrawColor(display, color_code);
-	u8g2_SetFont(display, u8g2_font_6x10_tr);
-	u8g2_DrawStr(display, (128 - u8g2_GetStrWidth(display, text))/2, 40, text);
-	u8g2_SendBuffer(display);
+	// Startanweisungen
+	char* strings[] = {
+		"Knopfdruck rechts, um",
+		"Roboter zu starten"
+	};
+	int pos_x = 0;
+	int pos_y = (64 + u8g2_GetAscent(display)) / 2;
+	multiPrintToDisplay(strings, 2, pos_x, pos_y);
 
 	// LEDs setzen
 	clearLeds();
@@ -631,70 +647,59 @@ void init(){
 			while ( isPressed(BUTTON_RIGHT) );
 		}
 	}
-
-
 }
 
-char button_pressed = 0;
 
 void loop(){
+	char* strings[] = {
+	"Loest Labyrinth",
+	"mit Tremaux-",
+	"Algorithmus"
+	};
+	int pos_x = 20;
+	int pos_y = 25;
+	multiPrintToDisplay(strings, 3, pos_x, pos_y);
 	current_cell = &map[current_pos[0]][current_pos[1]];
 
-	//Ausgleichen der Abstände zur Wand
-	correction();
+	//Abstände zur Wand korrigieren
+	adjustPosition();
 
-	// Check, ob am Ziel angekommen
+	// Überprüfen, ob am Ziel angekommen
 	if(goalReached()){
-		u8g2_ClearBuffer(display);
-
-		int color_code = 1;
-		u8g2_SetDrawColor(display, color_code);
-
 		char text[] = "Ziel erreicht!";
-		u8g2_SetFont(display, u8g2_font_6x10_tr); // 2. Input ist die Schriftart und Größe
-
-		int position_x = 0; //0 ist ganz links
-		int position_y = (64 + u8g2_GetAscent(display))/2; // Y so, dass Text in der Mitte angezeigt wird
-
-		u8g2_DrawStr(display, position_x, position_y, text);
-
-		u8g2_SendBuffer(display);
+		int pos_x = (128 - u8g2_GetStrWidth(display, text)) / 2;
+		int pos_y = (64 + u8g2_GetAscent(display))/2;
+		printToDisplay(text, pos_x, pos_y);
 
 		victoryDance();
 
 		while (1) {
-
 		}
 	}
 
 	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
 	checkForWalls();
 
-	// Falls noch nicht bewegt, einmal um 90° drehen und erneut scannen, um auch die hintere Wand erkennen zu können
-	if (movement_counter == 0) {
-		turn90(0);
-		orientation = 2;
+	// Falls noch nicht bewegt, einmal um 90° drehen und erneut scannen, um auch die hintere Wand mappen zu können
+	if (moves == 0) {
+		turn90(RIGHT);
+		current_direction = EAST;
 		checkForWalls();
-		turn90(1);
-		orientation = 0;
+		turn90(LEFT);
+		current_direction = NORTH;
 	}
 
-	// Feld auf Display ausgeben
-	displayCell();
-
-	if (movement_counter == 0){
-		next_direction = lowestCounterDirection();
+	if (moves == 0){
+		next_direction = getLowestCounterDirection();
 	} else {
 		next_direction = getTremauxDirection();
 	}
-	// Entscheidung auf Bilschirm ausgeben und Aufforderung, ins nächste Feld platziert zu werden
-	displayMovementDecision();
 
 	// Zum nächsten Feld navigieren
 	moveToNextField(next_direction);
 
 	// Orientierung aktualisieren. Orientierung == Richtung, in die Zuletzt gefahren wurde
-	orientation = next_direction;
+	current_direction = next_direction;
 
 	// Nächste Position bestimmen
 	updateNextPosition();
@@ -711,7 +716,5 @@ void loop(){
 	current_pos[1] = next_pos[1];
 
 	// Anzahl der zurückgelegten Felder aktualisieren
-	movement_counter ++;
+	moves ++;
 }
-
-
