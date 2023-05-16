@@ -108,7 +108,7 @@ void displayMap(enum direction display_direction) {
 	int pos_x, pos_y, distance_x, distance_y;
 	int center_x;
 	int center_y;
-	int line_length = 2;
+	int line_length = 20;
 	for (int i = 0; i<15; i++){
 		for (int j = 0; j<15; j++){
 			temp_cell = &map[i][j];
