@@ -466,6 +466,106 @@ char getRandomDirection() {
 }
 
 
+// Gibt einen Richtung zurück, die den Roboter die rechte Wand folgen lässt
+char getWallFollowerDirection() {
+	char wall_right = 0, wall_middle = 0, wall_left = 0;
+	if (current_direction == NORTH) {
+		if (current_cell->counter_e == 9) {
+			wall_right = 1;
+		}
+		if (current_cell->counter_n == 9) {
+			wall_middle = 1;
+		}
+		if (current_cell->counter_w == 9) {
+			wall_left = 1;
+		}
+		if (wall_right && !wall_middle) {
+			return NORTH;
+		}
+		if (wall_right && wall_middle && !wall_left) {
+			return WEST;
+		}
+		if (!wall_right) {
+			return EAST;
+		}
+		if (wall_right && wall_middle && wall_left) {
+			return SOUTH;
+		}
+	}
+	if (current_direction == SOUTH) {
+		if (current_cell->counter_w == 9) {
+			wall_right = 1;
+		}
+		if (current_cell->counter_s == 9) {
+			wall_middle = 1;
+		}
+		if (current_cell->counter_e == 9) {
+			wall_left = 1;
+		}
+		if (wall_right && !wall_middle) {
+			return SOUTH;
+		}
+		if (wall_right && wall_middle && !wall_left) {
+			return EAST;
+		}
+		if (!wall_right) {
+			return WEST;
+		}
+		if (wall_right && wall_middle && wall_left) {
+			return NORTH;
+		}
+	}
+	if (current_direction == EAST) {
+		if (current_cell->counter_s == 9) {
+			wall_right = 1;
+		}
+		if (current_cell->counter_e == 9) {
+			wall_middle = 1;
+		}
+		if (current_cell->counter_n == 9) {
+			wall_left = 1;
+		}
+		if (wall_right && !wall_middle) {
+			return EAST;
+		}
+		if (wall_right && wall_middle && !wall_left) {
+			return NORTH;
+		}
+		if (!wall_right) {
+			return SOUTH;
+		}
+		if (wall_right && wall_middle && wall_left) {
+			return WEST;
+		}
+	}
+	if (current_direction == WEST) {
+		if (current_cell->counter_n == 9) {
+			wall_right = 1;
+		}
+		if (current_cell->counter_w == 9) {
+			wall_middle = 1;
+		}
+		if (current_cell->counter_s == 9) {
+			wall_left = 1;
+		}
+		if (wall_right && !wall_middle) {
+			return WEST;
+		}
+		if (wall_right && wall_middle && !wall_left) {
+			return SOUTH;
+		}
+		if (!wall_right) {
+			return NORTH;
+		}
+		if (wall_right && wall_middle && wall_left) {
+			return EAST;
+		}
+	}
+	goToErrorState();
+	return -1;
+}
+
+
 // Aktualisiert die Tremaux Counter
 void updateTremauxCounters() {
 	if (current_direction == NORTH){
@@ -856,8 +956,10 @@ void loop(){
 	} else {
 		if (algo == TREMAUX) {
 			next_direction = getTremauxDirection();
-		} else if(algo == RANDOM) {
+		} else if (algo == RANDOM) {
 			next_direction = getRandomDirection();
+		} else if (algo == WALL_FOLLOW) {
+			 next_direction = getWallFollowerDirection();
 		}
 
 	}
@@ -876,7 +978,9 @@ void loop(){
 
 
 	// Tremaux Counter aktualisieren
-	updateTremauxCounters();
+	if (algo == TREMAUX) {
+		updateTremauxCounters();
+	}
 
 	// Position aktualisieren
 	current_pos[0] = next_pos[0];
