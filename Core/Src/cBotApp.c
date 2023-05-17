@@ -1,16 +1,48 @@
 /*
- * Labyrinth Bot + Mapping + Algorithmusauswahl
- * Dieses Programm lässt den Roboter eigenständig ein beliebiges Labyrinth (aus 250mm langen Wänden in 90° oder 180° Winkeln) lösen
+ * cBotApp.c
+ *
+ * LabyrinthBot
+ *
+ * Dieses Programm versetzt cBot in den Labyrinthlösungs-Modus.
+ *
+ * Aus einem Menü kann zwischen drei Lösungsalgorithmen gewählt werden:
+ * - Zufällig: cBot wählt bei jeder Entscheidung eine zufällige Richtung, in der keine Wand steht
+ * - Rechte Wand folgen: cBot folgt immer der rechten Wand
+ * - Trémaux: Lösung nach Trémaux Methode von  Charles Pierre Trémaux. Mehr Informationen: https://de.wikipedia.org/wiki/Tr%C3%A9maux%E2%80%99_Methode
+ *
+ * Nach Auswahl des Algorithmus beginnt der Roboter das Labyrinth mit der gewählten Methode zu lösen.
+ * Voraussetzung hierbei ist, dass die Wände in einem 90 oder 180° Winkel zueinander stehen und 250mm lang, sowie mindestens 100mm hoch sind.
+ *
+ * Zugleich stellt cBot auf dem Display eine Karte des Labyrinths dar, die seiner Sicht entspricht. Die Karte rotiert mit den Drehungen von cBot,
+ * um eine konstante Orientierung sicherzustellen.
+ *
+ * Sobald der Roboter das Zielfeld erreicht (signalisiert durch ein schwarzes Feld auf dem Boden), signalisiert er dies durch einen Siegestanz.
+ *
+ * Copyright (C) 2023 Stefan Hörmann, Leon Gunst, Tobias Knell (mail@stefan-hoermann.de, leon.gunst@studmail.hs-aalen.de, tobias.knell@studmail.hs-aalen.de)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ *
  */
 
-
-#include <stdlib.h>
-#include <stdio.h>
-#include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "cBotApp.h"
 #include "marioSong.h"
+
 
 enum direction {
 	NORTH,
@@ -38,14 +70,14 @@ typedef struct {
 } cell;
 
 cell map[15][15];
-int current_pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
-int next_pos[2] = {7, 7};
 cell *current_cell;
 cell *next_cell;
-char current_direction = NORTH;
-char next_direction = NORTH; // Richtungsanweisung für die nächste Bewegung
+int current_pos[2] = {7, 7}; // Momentane Position im Labyrinth - ROW - COL
+int next_pos[2] = {7, 7};
 int algo;
 int moves = 0; // Anzahl der zurückgelegten Felder
+char current_direction = NORTH;
+char next_direction = NORTH; // Richtungsanweisung für die nächste Bewegung
 
 
 // Display initialisieren
@@ -64,18 +96,17 @@ void printToDisplay(char text[], int pos_x, int pos_y){
 	u8g2_SendBuffer(display);
 }
 
-
 // Gibt mehrere Zeilen Text auf dem Bildschirm aus
 void multiPrintToDisplay(char** text, int n_strings, int start_x, int start_y){
 	u8g2_ClearBuffer(display);
 	u8g2_SetDisplayRotation(display, U8G2_R0);
+
 	for (int i=0; i<n_strings; i++){
 		u8g2_DrawStr(display, start_x, start_y, text[i]);
 		start_y += 12;
 	}
 	u8g2_SendBuffer(display);
 }
-
 
 // Ermöglicht dem Nutzer, einen Algorithmus auszuwählen
 int getAlgo() {
@@ -90,12 +121,11 @@ int getAlgo() {
 		"Zufaellige Richtung",
 		"Rechte Wand folgen"
 	};
-	int pos_x = 0;
-	int pos_y = 20;
+	int pos_x = 0, pos_y = 20, i = 10;
+
 	multiPrintToDisplay(text, 4, pos_x, pos_y);
 
 	pos_y += 20;
-	int i = 10;
 	while (1) {
 		if (isPressed(BUTTON_RIGHT)) {
 			i++;
@@ -117,13 +147,11 @@ int getAlgo() {
 	}
 }
 
-
-// Stellt aktuelle Position als Punkt dar
+// Stellt aktuelle Position als Punkt auf dem Display dar
 void displayCurrentPos(int pos_x, int pos_y) {
 	int radius = 1;
 	u8g2_DrawDisc(display, pos_x, pos_y, radius, U8G2_DRAW_ALL);
 }
-
 
 // Zeichnet eine Zelle auf Basis der x und y Koordinaten auf das Display
 void displayCell(cell* target_cell, int center_x, int center_y, enum direction display_direction) {
@@ -160,20 +188,19 @@ void displayCell(cell* target_cell, int center_x, int center_y, enum direction d
 	}
 }
 
-
 // Gibt die Karte in gewünschter Orientirung auf dem Display aus
 void displayMap(enum direction display_direction) {
+	cell* temp_cell;
+	int pos_x, pos_y, distance_x, distance_y, center_x, center_y;
+	int line_length = 15;
+
 	u8g2_ClearBuffer(display);
 
-	cell* temp_cell;
-	int pos_x, pos_y, distance_x, distance_y;
-	int center_x;
-	int center_y;
-	int line_length = 15;
 	for (int i = 0; i<15; i++){
 		for (int j = 0; j<15; j++){
 			temp_cell = &map[i][j];
 			if (display_direction == NORTH){
+				// Rotiert Display zu passender Orientierung und passt Mittelpunkt des Displays an
 				u8g2_SetDisplayRotation(display, U8G2_R0);
 				center_x = 63;
 				center_y = 35;
@@ -191,16 +218,18 @@ void displayMap(enum direction display_direction) {
 				center_y = 63;
 			}
 			displayCurrentPos(center_x, center_y);
+
+			// Bestimmt die Pixeldistanz von der aktuellen Position des cBots zum Mittelpunkt der momentanen Zelle
 			distance_x = (j - current_pos[1]) * line_length; // Pixel
 			distance_y = (i - current_pos[0]) * line_length; // Pixel
 			pos_x = center_x + distance_x;
 			pos_y = center_y + distance_y;
+
 			displayCell(temp_cell, pos_x, pos_y, display_direction);
 		}
 	}
 	u8g2_SendBuffer(display);
 }
-
 
 // Bringt den Roboter in einen stabilen Error Zustand und gibt eine Benachrichtigung auf dem Display aus
 void goToErrorState() {
@@ -222,12 +251,9 @@ void goToErrorState() {
 
 }
 
-
 // Überprüft, ob das Ziel erreicht wurde
 char goalReached(){
-	int counter = 0;
-	int sleep_duration = 20;
-	int value_threshold = 200;
+	int counter = 0, sleep_duration = 20, value_threshold = 200;
 	int time_threshold = 500; //in ms
 	int sensor_left = getLightValue(SENSOR_LEFT);
 	int sensor_right = getLightValue(SENSOR_RIGHT);
@@ -244,7 +270,6 @@ char goalReached(){
 		HAL_Delay(sleep_duration);
 	}
 }
-
 
 // Gibt einen Durchschnittswert der Ultraschall-Distanzmessung zurück
 int getAvgRangeMm(sensorId id) {
@@ -267,14 +292,13 @@ int getAvgRangeMm(sensorId id) {
 	return average;
 }
 
-
 // Sucht nach Wänden um den Roboter und aktualisiert anschließend die Counter der aktuellen Zelle
 void checkForWalls(){
 	int wall_threshold = 150; // mm
 	int sensor_values[] = {getAvgRangeMm(SENSOR_LEFT), getAvgRangeMm(SENSOR_MIDDLE), getAvgRangeMm(SENSOR_RIGHT)};
 	int sensor_values_nsew[4];
 
-	// Sensor Werte in ihre Himmelsrichtung Orientierung umtragen
+	// Trägt Sensor Werte in ihre Himmelsrichtung Orientierung um
 	if (current_direction == NORTH){
 		sensor_values_nsew[NORTH] = sensor_values[1];
 		sensor_values_nsew[SOUTH] = -1; // Von da ist der Roboter gerade gekommen
@@ -299,7 +323,7 @@ void checkForWalls(){
 		goToErrorState();
 	}
 
-	// Überprüft, ob in den Himmelsrichtungen eine Wand ist und falls ja, dies in der Karte vermerken
+	// Überprüft, ob in den Himmelsrichtungen eine Wand ist und falls ja, vermerkt dies in der Karte
 	for (int i=0; i<4; i++) {
 		if ((sensor_values_nsew[i] <= wall_threshold) && (sensor_values_nsew[i] >= 0)) {
 			if (i == NORTH) {
@@ -314,7 +338,6 @@ void checkForWalls(){
 		}
 	}
 }
-
 
 // Gibt eine Richtung mit dem niedrigsten erlaubten Counter Wert zurück
 int getLowestCounterDirection(){
@@ -336,7 +359,6 @@ int getLowestCounterDirection(){
 	return -1;
 }
 
-
 // Gibt die Anzahl der offenen Wege zurück
 char getNumberOfExits() {
 	char counter = 0;
@@ -355,7 +377,6 @@ char getNumberOfExits() {
 	return counter;
 }
 
-
 // Gibt die entgegengestzte Himmelsrichtung zurück
 char getOppositeDirection(char direction) {
 	if (direction == NORTH){
@@ -373,7 +394,6 @@ char getOppositeDirection(char direction) {
 	goToErrorState();
 	return -1;
 }
-
 
 // Überprüft, ob der Roboter schon in der Zelle war
 char cellVisited() {
@@ -398,7 +418,6 @@ char cellVisited() {
 	return 0;
 }
 
-
 // Gibt Tremaux Counter basierend auf der Himmelsrichtung zurück
 char getCounterFromDirection(char direction) {
 	if (direction == NORTH){
@@ -416,7 +435,6 @@ char getCounterFromDirection(char direction) {
 	goToErrorState();
 	return -1;
 }
-
 
 // Gibt zurück, in welche Richtung laut dem Tremaux Algorithmus als nächstes gefahren werden soll
 char getTremauxDirection() {
@@ -443,7 +461,6 @@ char getTremauxDirection() {
 	// Wenn Ausgang schon 2x benutzt, dann einen Ausgang mit dem niedrigsten Counter wählen
 	return lowest_counter_direction;
 }
-
 
 // Gibt eine zufäliige Richtung zurück, in der keine Wand ist
 char getRandomDirection() {
@@ -475,8 +492,7 @@ char getRandomDirection() {
 	}
 }
 
-
-// Gibt einen Richtung zurück, die den Roboter die rechte Wand folgen lässt
+// Gibt einen Richtung zurück, die den Roboter der rechten Wand folgen lässt
 char getWallFollowerDirection() {
 	char wall_right = 0, wall_middle = 0, wall_left = 0;
 	if (current_direction == NORTH) {
@@ -575,7 +591,6 @@ char getWallFollowerDirection() {
 	return -1;
 }
 
-
 // Aktualisiert die Tremaux Counter
 void updateTremauxCounters() {
 	if (current_direction == NORTH){
@@ -596,7 +611,6 @@ void updateTremauxCounters() {
 	}
 }
 
-
 // Berechnet die nächste Position und speichert sie ab
 void updateNextPosition() {
 	if (next_direction == NORTH) {
@@ -609,7 +623,6 @@ void updateNextPosition() {
 		next_pos[1] -= 1;
 	}
 }
-
 
 // Dreht den Roboter um 90° in die gewünschte Richtung
 void turn90(char turn_direction) {
@@ -628,7 +641,6 @@ void turn90(char turn_direction) {
 	setMotorRpm(rpm_left, rpm_right);
 }
 
-
 // Dreht den Roboter um 180°
 void turn180() {
 	int rpm_left = -15, rpm_right = 15;
@@ -639,7 +651,6 @@ void turn180() {
 	setMotorRpm(rpm_left, rpm_right);
 }
 
-
 // Lässt den Roboter ein Feld vorwärts fahren
 void moveOneFieldForward() {
 	int rpm_left = 15, rpm_right = 15;
@@ -649,7 +660,6 @@ void moveOneFieldForward() {
 	rpm_right = 0;
 	setMotorRpm(rpm_left, rpm_right);
 }
-
 
 // Ändert Roboter Orientierung zur übergebenen Himmelsrichtung
 void turnToDirection(char direction) {
@@ -700,7 +710,6 @@ void turnToDirection(char direction) {
 	}
 }
 
-
 // Manövriert den Roboter in das nächste Feld
 void moveToNextField(char direction) {
 	if (direction == current_direction) {
@@ -712,7 +721,6 @@ void moveToNextField(char direction) {
 		moveOneFieldForward();
 	}
 }
-
 
 // Richtet den Roboter im Feld neu aus, sobald der Roboter zu nah an eine Wand kommt
 void adjustPosition() {
@@ -801,8 +809,7 @@ void adjustPosition() {
 	}
 }
 
-
-// Initialisiert einen Siegestanz inklusive SuperMario Musik und blinkenden LEDs
+// Initialisiert einen Siegestanz inklusive Super Mario Musik und blinkenden LEDs
 void victoryDance() {
 	int hueStart = 0;
 	int rpmLeft = 0;
@@ -830,7 +837,6 @@ void victoryDance() {
 				HAL_Delay(50);
 			}
 		}
-
 		rpmLeft = -10;
 		rpmRight = 10;
 		setMotorRpm(rpmLeft, rpmRight);
@@ -843,7 +849,6 @@ void victoryDance() {
 				HAL_Delay(50);
 			}
 		}
-
 		rpmLeft = 5;
 		rpmRight = 5;
 		setMotorRpm(rpmLeft, rpmRight);
@@ -856,7 +861,6 @@ void victoryDance() {
 				HAL_Delay(50);
 			}
 		}
-
 		rpmLeft = -5;
 		rpmRight = -5;
 		setMotorRpm(rpmLeft, rpmRight);
@@ -881,15 +885,14 @@ void victoryDance() {
 
 
 void init(){
-	// Display initialisieren
-	int pos_x = 0;
-	int pos_y = 20;
+	// Initialisiert Display
+	int pos_x = 0, pos_y = 20;
 	initDisplay();
 
 	// Startanweisungen, Algorithmusauswahl
 	algo = getAlgo();
 
-	// LEDs setzen
+	// Setzt LEDs
 	clearLeds();
 	int bright_white = getColorHSV(0, 0, 50);
 	int dim_white = getColorHSV(0,0,1);
@@ -930,10 +933,10 @@ void init(){
 void loop(){
 	current_cell = &map[current_pos[0]][current_pos[1]];
 
-	//Abstände zur Wand korrigieren
+	//Korrigiert Abstände zur Wand
 	adjustPosition();
 
-	// Überprüfen, ob am Ziel angekommen
+	// Überprüft, ob am Ziel angekommen
 	if(goalReached()){
 		char text[] = "Ziel erreicht!";
 		int pos_x = (128 - u8g2_GetStrWidth(display, text)) / 2;
@@ -946,7 +949,7 @@ void loop(){
 		}
 	}
 
-	// Mit Ultraschall schauen, wo Wände sind und in Karte speichern
+	// Überprüfen, wo Wände sind und in Karte speichern
 	checkForWalls();
 
 	// Falls noch nicht bewegt, einmal um 90° drehen und erneut scannen, um auch die hintere Wand mappen zu können
@@ -958,7 +961,7 @@ void loop(){
 		current_direction = NORTH;
 	}
 
-	// Karte auf Display ausgeben
+	// Gibt Karte auf Display aus
 	displayMap(current_direction);
 
 	if ((moves == 0) && (algo == TREMAUX)){
@@ -974,28 +977,28 @@ void loop(){
 
 	}
 
-	// Zum nächsten Feld navigieren
+	// Navigiert zum nächsten Feld
 	moveToNextField(next_direction);
 
-	// Orientierung aktualisieren. Orientierung == Richtung, in die Zuletzt gefahren wurde
+	// Aktualisiert Orientierung. Orientierung == Richtung, in die Zuletzt gefahren wurde
 	current_direction = next_direction;
 
-	// Nächste Position bestimmen
+	// Bestimmt nächste Position
 	updateNextPosition();
 
-	// Nächstes Feld bestimmen
+	// Bestimmt nächstest Feld
 	next_cell = &map[next_pos[0]][next_pos[1]];
 
 
-	// Tremaux Counter aktualisieren
+	// Aktualisiert Tremaux Counter
 	if (algo == TREMAUX) {
 		updateTremauxCounters();
 	}
 
-	// Position aktualisieren
+	// Aktualisiert die Position
 	current_pos[0] = next_pos[0];
 	current_pos[1] = next_pos[1];
 
-	// Anzahl der zurückgelegten Felder aktualisieren
+	// Aktualisiert die Anzahl der zurückgelegten Felder
 	moves ++;
 }
