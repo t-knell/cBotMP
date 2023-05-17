@@ -126,12 +126,25 @@ void displayCurrentPos(int pos_x, int pos_y) {
 
 
 // Zeichnet eine Zelle auf Basis der x und y Koordinaten auf das Display
-void displayCell(cell* target_cell, int center_x, int center_y) {
-	int line_length = 20;
+void displayCell(cell* target_cell, int center_x, int center_y, enum direction display_direction) {
+	int line_length = 15;
 	int ll[] = {center_x - line_length / 2, center_y + line_length / 2}; //Ecke links unten (lower left)
 	int lr[] = {center_x + line_length / 2, center_y + line_length / 2};
 	int ul[] = {center_x - line_length / 2, center_y - line_length / 2};
 	int ur[] = {center_x + line_length / 2, center_y - line_length / 2};
+
+	// Überprüft, ob die Zelle noch vollständig auf dem Display ausgegeben werden kann
+	int pixels_x = 128, pixels_y = 64;
+	if ((display_direction == EAST) || (display_direction == WEST)) {
+		pixels_x = 64;
+		pixels_y = 128;
+	}
+	if ((center_x + line_length / 2 > pixels_x) || (center_x - line_length / 2 < 0)) {
+		return;
+	}
+	if ((center_y + line_length / 2 > pixels_y) || (center_y - line_length / 2< 0)) {
+		return;
+	}
 
 	if (target_cell->counter_n == 9){
 		u8g2_DrawLine(display, ul[0], ul[1], ur[0], ur[1]);
@@ -156,7 +169,7 @@ void displayMap(enum direction display_direction) {
 	int pos_x, pos_y, distance_x, distance_y;
 	int center_x;
 	int center_y;
-	int line_length = 20;
+	int line_length = 15;
 	for (int i = 0; i<15; i++){
 		for (int j = 0; j<15; j++){
 			temp_cell = &map[i][j];
@@ -182,7 +195,7 @@ void displayMap(enum direction display_direction) {
 			distance_y = (i - current_pos[0]) * line_length; // Pixel
 			pos_x = center_x + distance_x;
 			pos_y = center_y + distance_y;
-			displayCell(temp_cell, pos_x, pos_y);
+			displayCell(temp_cell, pos_x, pos_y, display_direction);
 		}
 	}
 	u8g2_SendBuffer(display);
@@ -458,7 +471,7 @@ char getRandomDirection() {
 				return random_direction;
 			}
 		}
-		HAL_Delay(200);
+		HAL_Delay(50);
 	}
 }
 
