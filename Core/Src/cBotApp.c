@@ -4,7 +4,6 @@
  */
 
 
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -74,7 +73,6 @@ void multiPrintToDisplay(char** text, int n_strings, int start_x, int start_y){
 		u8g2_DrawStr(display, start_x, start_y, text[i]);
 		start_y += 12;
 	}
-
 	u8g2_SendBuffer(display);
 }
 
@@ -95,7 +93,6 @@ int getAlgo() {
 	int pos_x = 0;
 	int pos_y = 20;
 	multiPrintToDisplay(text, 4, pos_x, pos_y);
-
 
 	pos_y += 20;
 	int i = 10;
@@ -438,7 +435,7 @@ char getTremauxDirection() {
 // Gibt eine zufäliige Richtung zurück, in der keine Wand ist
 char getRandomDirection() {
 	int random_direction;
-	srand(getRangeMm(SENSOR_LEFT));
+	srand(getRangeMm(SENSOR_RIGHT));
 	while (1) {
 		random_direction= rand() % 4;
 		if (random_direction == NORTH) {
@@ -951,7 +948,7 @@ void loop(){
 	// Karte auf Display ausgeben
 	displayMap(current_direction);
 
-	if (moves == 0){
+	if ((moves == 0) && (algo == TREMAUX)){
 		next_direction = getLowestCounterDirection();
 	} else {
 		if (algo == TREMAUX) {
